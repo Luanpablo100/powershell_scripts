@@ -1,0 +1,80 @@
+# Função para solicitar entrada do usuário
+function Get-UserInput {
+    param (
+        [string]$Prompt
+    )
+    Write-Host -NoNewline "${Prompt}: "
+    return Read-Host
+}
+
+# Função para criar um novo usuário no AD
+function Create-NewADUser {
+    # Solicitar dados do usuário
+    $firstName = Get-UserInput "Primeiro nome"
+    $lastName = Get-UserInput "Segundo nome"
+    $description = Get-UserInput "Descrição"
+    $logonName = Get-UserInput "Nome de logon"
+
+    # Definir valores automáticos
+    $domain = "lab.local" # Substitua pelo domínio local real
+    $email = "$logonName@$domain"
+    $office = "Matriz"
+    $displayName = "$firstName $lastName"
+
+    # Definir caminho da OU "SETORES"
+    $setoresOU = "OU=SETORES,OU=LAB CORP,DC=lab,DC=local" # Substitua pelo caminho DN correto
+
+    # Verificar se a OU "SETORES" existe
+    try {
+        $ouSetoresExists = Get-ADOrganizationalUnit -Identity $setoresOU -ErrorAction Stop
+    } catch {
+        Write-Host "A OU 'SETORES' não foi encontrada no domínio. Verifique o caminho DN."
+        exit
+    }
+
+    # Obter OUs filhas de "SETORES" (somente um nível abaixo)
+    $ous = Get-ADOrganizationalUnit -Filter * -SearchBase $setoresOU -SearchScope OneLevel
+
+    # Exibir lista de OUs para seleção
+    $ouIndex = 1
+    $ouList = @()
+    foreach ($ou in $ous) {
+        Write-Host "[$ouIndex] - $($ou.Name)"
+        $ouList += $ou
+        $ouIndex++
+    }
+
+    # Verificar se existem OUs disponíveis para seleção
+    if ($ouList.Count -eq 0) {
+        Write-Host "Não foram encontradas unidades organizacionais abaixo de 'SETORES'."
+        exit
+    }
+
+    # Solicitar seleção do usuário
+    $selectedIndex = Get-UserInput "Selecione o número da unidade organizacional"
+    if ($selectedIndex -le 0 -or $selectedIndex -gt $ouList.Count) {
+        Write-Host "Seleção inválida. Por favor, execute o script novamente e escolha uma opção válida."
+        exit
+    }
+    $selectedOU = $ouList[$selectedIndex - 1]
+
+    # Definir caminho da OU final
+    $finalOU = "OU=USUARIOS,OU=$($selectedOU.Name),$setoresOU"
+
+    # Criar o novo usuário no AD
+    New-ADUser -GivenName $firstName -Surname $lastName -Name "$firstName $lastName" `
+        -UserPrincipalName $email -SamAccountName $logonName `
+        -EmailAddress $email -Description $description `
+        -Office $office -DisplayName $displayName -Path $finalOU -AccountPassword (ConvertTo-SecureString "P@ssw0rd" -AsPlainText -Force) `
+        -Enabled $true
+
+    Write-Host "Usuário criado com sucesso na OU: $finalOU"
+}
+
+# Loop para criar usuários repetidamente
+do {
+    Create-NewADUser
+    $continue = Get-UserInput "Deseja criar um novo usuário? (S/N)"
+} while ($continue -eq 'S' -or $continue -eq 's')
+
+Write-Host "Script finalizado."
